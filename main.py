@@ -1,98 +1,136 @@
 import ast
 
-class NumberFinder(ast.NodeVisitor):
+class Scope:
+    def __init__(self, name=None, parent=None):
+        self.name = name
+        self.symbol = {}
+        self.parent = parent
+        self.children = []
+
+class SymbolTableBuilder(ast.NodeVisitor):
     def __init__(self):
-        self.defined_functions=set()
-        self.defined_variable=set()
-        self.used_symbol=set()
+        # Genration of global scope
+        self.root_scope=Scope(name="Global",parent=None)
+        self.current_scope=self.root_scope
+
+    def add_func_scope(self,name):
+        #adding new scope for first time using scope class
+        new_node=Scope(name=name,parent=self.current_scope)
+        self.current_scope.children.append(new_node)
+        self.current_scope=new_node
+
+    def visit_Import(self, node):
+        for element in node.names:
+            self.current_scope.symbol[element.name]={"name":f"{element.name}","is_defined":True,"is_used":False}
     def visit_FunctionDef(self, node):
-        self.defined_functions.add(node.name)
+        # This function Adds Func define in symbol table and changes scopes
+        self.current_scope.symbol[node.name]={"name":f"{node.name}","is_defined":True,"is_used":False}
+        self.add_func_scope(node.name)
+        if isinstance(node.args.args,list):
+            for argument in node.args.args:
+                self.current_scope.symbol[argument.arg]={"name":f"{argument.arg}","is_defined":True,"is_used":False}
+
         self.generic_visit(node)
+        # updates the scope we are in
+        self.current_scope=self.current_scope.parent
+
+    def visit_Call(self, node):
+        # This flips the is_used to true for called function
+        if isinstance(node.func,ast.Name):
+            temp_node=self.current_scope
+            while temp_node:
+                if node.func.id in temp_node.symbol:
+                   temp_node.symbol[node.func.id]["is_used"]=True
+                   break
+                else:
+                   temp_node=temp_node.parent
+
+            # Need to add the LEGB- knowledge of built in functions for this warning
+            # if not temp_node:
+            #     print(f"Function {node.func.id} is not defined")
+        self.generic_visit(node)
+
+
     def visit_Assign(self, node):
+        # Adds variables to symbol table
         for target in node.targets:
             if isinstance(target,ast.Tuple):
                for element in target.elts:
                    if isinstance(element,ast.Name):
-                      self.defined_variable.add(element.id)
+                      self.current_scope.symbol[element.id]={"name":f"{element.id}","is_defined":True,"is_used":False}
             elif isinstance(target,ast.Name):
-                self.defined_variable.add(target.id)
+                self.current_scope.symbol[target.id] = {"name": f"{target.id}", "is_defined": True, "is_used": False}
         self.generic_visit(node)
-    def visit_Call(self, node):
-        if isinstance(node.func,ast.Name):
-            self.used_symbol.add(node.func.id)
-        self.generic_visit(node)
+
     def visit_Name(self, node):
+
         if isinstance(node.ctx,ast.Load):
-            self.used_symbol.add(node.id)
+            temp_node = self.current_scope
+            while temp_node:
+               if node.id in temp_node.symbol:
+                  temp_node.symbol[node.id]["is_used"]=True
+                  break
+               else:
+                   temp_node=temp_node.parent
+            if not temp_node:
+                print(f"The variable {node.id} is not defined")
         self.generic_visit(node)
+
     def report(self):
+        print("--- Dead Code Report ---")
+        self.recursive_report(self.root_scope)
+        print("--- End of Report ---")
 
-        dead_function=self.defined_functions-self.used_symbol
-        dead_variable=self.defined_variable-self.used_symbol
-        for func in dead_variable:
-            print(f"The variable is declared but never used:{func}")
-        for func in dead_function:
-            print(f"The function is declared but never called:{func}")
+    def recursive_report(self,temp_scope):
+        for key in temp_scope.symbol:
+            if not temp_scope.symbol[key]["is_used"]:
+                print(f"{temp_scope.name}:Unused--> {key}")
+        for child in temp_scope.children:
+            self.recursive_report(child)
 
-class NumberChanger(ast.NodeTransformer):
-    def visit_BinOp(self, node):
-        if not isinstance(node.op, ast.Add):
-            return self.generic_visit(node)
-        first=None
-        second=None
-        if isinstance(node.left,ast.Constant) and isinstance(node.right,ast.Name):
-                first=node.left
-                second=node.right
-        elif isinstance(node.right,ast.Constant) and isinstance(node.left, ast.Name):
-                first=node.right
-                second=node.left
-        if first and second:
-            print("Found a string concatenation to convert!")
-            return ast.JoinedStr(values=[first,ast.FormattedValue(value=second,conversion=-1)])
 
-        return node
-    def visit_Call(self, node):
-        if isinstance(node.func,ast.Attribute) and node.func.attr=="format":
-            if isinstance(node.func.value,ast.Constant) and isinstance(node.func.value.value,str):
-                print("Found a .format() call to convert")
-                orignal_string=node.func.value.value
-                sting_part=ast.Constant(value=orignal_string.replace("{}",""))
-                var_part=node.args[0]
-                formatted_value=ast.FormattedValue(value=var_part,conversion=-1)
-                return ast.JoinedStr(values=[sting_part,formatted_value])
-        return self.generic_visit(node)
-
-    def visit_FunctionDef(self, node):
-        string_arg= ast.Constant(value=f"Entering function {node.name}")
-        string_func=ast.Name(id="print",ctx=ast.Load())
-        string_call=ast.Call(func=string_func,args=[string_arg])
-        print_exp_node=ast.Expr(value=string_call)
-        node.body.insert(0,print_exp_node)
-        self.generic_visit(node)
-        return node
 
 
 
 
 
 source_code = """
-x,y,z=3
-y=6
-"Hello, " + name
-"Hello, {}".format(name)
-f"hello,{name}"
-3+4
-def fun(heh):
-   x=1+2
-   print("hello world")
-   return x
-z=y
-fun(x)
+import os  # Unused import
+
+GLOBAL_DEAD = 'I am never used'
+GLOBAL_USED = 'I am used'
+
+def dead_function(): # Never called
+    pass
+
+def outer_function(arg_used, arg_dead): # 'arg_dead' is unused
+    outer_var_used_by_inner = 100 # Used by the nested function
+    outer_var_dead = 200          # Never used
+    shadowed_var = 'outer value'  # Never used, as it is shadowed below
+
+    def inner_function(inner_arg_dead): # 'inner_arg_dead' is unused
+        # This variable shadows the one from the outer scope
+        shadowed_var = 'inner value' # This is also an unused local variable
+        
+        # This uses a variable from the enclosing (outer) scope
+        print(outer_var_used_by_inner)
+
+    # This ensures 'inner_function' itself is not dead code
+    inner_function('dead')
+    # This ensures 'arg_used' is not dead code
+    print(arg_used)
+
+# --- Entry Point ---
+def main():
+    print(GLOBAL_USED)
+    outer_function('used')
+
+main()
 """
 tree = ast.parse(source_code)
 print(ast.dump(tree,indent=3))
 
-detector = NumberFinder()
+detector = SymbolTableBuilder()
 detector.visit(tree)
 detector.report()
 
