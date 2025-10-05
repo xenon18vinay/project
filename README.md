@@ -1,5 +1,5 @@
 ----Python Dead Code Detector & AST Toolkit---
-Note: This project is a work-in-progress, focused on building a static code analyzer for Python. I have completed figuring out AST now i am focusing on the actual logic of symbol table
+Note: This project is a work-in-progress, focused on building a static code analyzer for Python. Have built the complete varible and funnction deed code detecion functions
 
 This tool is a static code analyzer designed to find and report unused variables and functions in large Python codebases. It works by parsing the source code into an Abstract Syntax Tree (AST), allowing it to analyze the code's structure without having to run it.
 
