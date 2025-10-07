@@ -1,4 +1,13 @@
 import ast
+class Symbol:
+    def __init__(self,name):
+        self.name=name
+        self.is_defined=True
+        self.is_used=False
+    def used(self):
+        self.is_used=True
+    def __repr__(self):
+        return f"<Symbol(name'{self.name}',used={self.is_used})>"
 
 class Scope:
     def __init__(self, name=None, parent=None):
@@ -21,14 +30,14 @@ class SymbolTableBuilder(ast.NodeVisitor):
 
     def visit_Import(self, node):
         for element in node.names:
-            self.current_scope.symbol[element.name]={"name":f"{element.name}","is_defined":True,"is_used":False}
+            self.current_scope.symbol[element.name]=Symbol(element.name)
     def visit_FunctionDef(self, node):
         # This function Adds Func define in symbol table and changes scopes
-        self.current_scope.symbol[node.name]={"name":f"{node.name}","is_defined":True,"is_used":False}
+        self.current_scope.symbol[node.name]=Symbol(node.name)
         self.add_func_scope(node.name)
         if isinstance(node.args.args,list):
             for argument in node.args.args:
-                self.current_scope.symbol[argument.arg]={"name":f"{argument.arg}","is_defined":True,"is_used":False}
+                self.current_scope.symbol[argument.arg]=Symbol(argument.arg)
 
         self.generic_visit(node)
         # updates the scope we are in
@@ -40,7 +49,7 @@ class SymbolTableBuilder(ast.NodeVisitor):
             temp_node=self.current_scope
             while temp_node:
                 if node.func.id in temp_node.symbol:
-                   temp_node.symbol[node.func.id]["is_used"]=True
+                   temp_node.symbol[node.func.id].used()
                    break
                 else:
                    temp_node=temp_node.parent
@@ -57,9 +66,9 @@ class SymbolTableBuilder(ast.NodeVisitor):
             if isinstance(target,ast.Tuple):
                for element in target.elts:
                    if isinstance(element,ast.Name):
-                      self.current_scope.symbol[element.id]={"name":f"{element.id}","is_defined":True,"is_used":False}
+                      self.current_scope.symbol[element.id]=Symbol(element.id)
             elif isinstance(target,ast.Name):
-                self.current_scope.symbol[target.id] = {"name": f"{target.id}", "is_defined": True, "is_used": False}
+                self.current_scope.symbol[target.id] = Symbol(target.id)
         self.generic_visit(node)
 
     def visit_Name(self, node):
@@ -68,7 +77,7 @@ class SymbolTableBuilder(ast.NodeVisitor):
             temp_node = self.current_scope
             while temp_node:
                if node.id in temp_node.symbol:
-                  temp_node.symbol[node.id]["is_used"]=True
+                  temp_node.symbol[node.id].used()
                   break
                else:
                    temp_node=temp_node.parent
@@ -83,7 +92,7 @@ class SymbolTableBuilder(ast.NodeVisitor):
 
     def recursive_report(self,temp_scope):
         for key in temp_scope.symbol:
-            if not temp_scope.symbol[key]["is_used"]:
+            if not temp_scope.symbol[key].is_used:
                 print(f"{temp_scope.name}:Unused--> {key}")
         for child in temp_scope.children:
             self.recursive_report(child)
